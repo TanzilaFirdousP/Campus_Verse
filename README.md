@@ -24,6 +24,12 @@ python -m streamlit run app.py
 
 Open the local URL printed by Streamlit. The model runs locally through Ollama; no API key is required. `llama3.2:3b` is a small starting model; teammates can change `OLLAMA_MODEL` in `.env` to another model they have pulled.
 
+## Visitors and privacy
+
+Chats, memories, character state and goals are stored **per visitor**. In local mode `.env` sets `CAMPUSVERSE_SINGLE_USER_ID=local`, so everything on your own computer belongs to one visitor. On a public deployment leave that variable unset: each browser gets a random private id that is kept in the page link (`?v=...`), so bookmark the page to return to your chats. This is a privacy boundary for a prototype, not a login system: anyone with your personal link can open your chats. The campus world itself (characters, locations, events, relationships) is shared.
+
+Existing databases are upgraded automatically; old chats and memories become visitor `local`.
+
 ## Backend modes
 
 - `CAMPUSVERSE_BACKEND=ollama` (default): local Ollama model.

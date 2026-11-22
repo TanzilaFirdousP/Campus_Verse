@@ -1,10 +1,18 @@
 import streamlit as st
 from campusverse.db import init_db, get_characters, get_locations, get_events, move_character
-from campusverse.pipeline import send_message, get_history
+from campusverse.pipeline import send_message, get_history, clear_chat
 from campusverse.memory import get_context_preview
+from campusverse.config import SINGLE_USER_ID
+from campusverse.visitor import resolve_visitor_id
 
 st.set_page_config(page_title="CampusVerse", page_icon="🎓", layout="wide")
 init_db()
+
+# Which private data set does this browser use? (see campusverse/visitor.py)
+visitor_id = resolve_visitor_id(st.query_params.get("v"), st.session_state.get("visitor_id"), SINGLE_USER_ID)
+st.session_state.visitor_id = visitor_id
+if not SINGLE_USER_ID and st.query_params.get("v") != visitor_id:
+    st.query_params["v"] = visitor_id  # keeps the id in the page link so a refresh or bookmark finds the same chats
 
 st.markdown("""
 <style>
@@ -18,6 +26,12 @@ h1,h2,h3 { color:var(--forest) !important; font-family:'Playfair Display',serif 
 p, label, .stMarkdown, [data-testid="stCaptionContainer"] { color:var(--ink); }
 .stButton>button { background:var(--forest); color:#fff; border:0; border-radius:12px; font-weight:600; min-height:2.65rem; }
 .stButton>button:hover { background:var(--moss); color:#fff; border:0; }
+/* Button labels must stay readable in every state (normal, hover, focus, pressed, inside the sidebar).
+   Streamlit wraps the label in a <p>/<div>, which the generic text rules above would turn dark. */
+.stButton > button, .stButton > button:hover, .stButton > button:focus, .stButton > button:focus-visible, .stButton > button:active { color:#fff !important; border:0 !important; }
+.stButton > button:hover, .stButton > button:focus, .stButton > button:active { background:var(--moss) !important; }
+.stButton > button *, .stButton > button:hover *, .stButton > button:focus *, .stButton > button:active * { color:#fff !important; }
+[data-testid="stSidebar"] .stButton > button, [data-testid="stSidebar"] .stButton > button * { color:#fff !important; }
 .stTextInput input, [data-testid="stChatInput"] textarea { background:#fffdf8 !important; color:#26372e !important; }
 .hero { background:linear-gradient(115deg,#203c32,#49664f); color:#fff; padding:1.45rem 1.8rem; border-radius:20px; margin-bottom:1rem; box-shadow:0 8px 22px #203c3218; }
 .hero h1 { color:#fff !important; font-size:2.5rem; margin:0; }
@@ -39,7 +53,9 @@ if "selected_character" not in st.session_state:
     st.session_state.selected_character = None
 
 def home():
-    st.query_params.clear()
+    for key in ("place", "view"):  # keep ?v=<visitor id>; only clear the navigation state
+        if key in st.query_params:
+            del st.query_params[key]
     st.session_state.selected_character = None
     st.rerun()
 
@@ -58,7 +74,10 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.caption("Prototype build · Local SQLite")
-    st.caption("Chats and memories are stored on this computer.")
+    if SINGLE_USER_ID:
+        st.caption("Chats and memories are stored on this computer.")
+    else:
+        st.caption("Your chats and memories are private to this browser link. Bookmark this page to come back to them.")
 
 selected = get_selected()
 place = st.query_params.get("place")
@@ -81,7 +100,7 @@ if selected:
         with st.expander("Character details & memory"):
             st.write("**What they're working toward:**", selected["goal"])
             st.write("**What they worry about:**", selected["fear"])
-            st.json(get_context_preview(selected["id"]), expanded=False)
+            st.json(get_context_preview(selected["id"], visitor_id=visitor_id), expanded=False)
         with st.expander("🧠 P-FIT-inspired integration trace"):
             st.caption("The response pipeline combines separate information sources before generation.")
             st.markdown("1. **Input / perception** — current message + selected character")
@@ -95,14 +114,31 @@ if selected:
         st.markdown('<div class="dialogue-shell">', unsafe_allow_html=True)
         st.markdown(f"#### 💬 {selected['name'].split()[0]}")
         st.caption("You're chatting one-on-one. This conversation is saved.")
-        for msg in get_history(selected["id"]):
+        history = get_history(selected["id"], visitor_id=visitor_id)
+        if st.session_state.get("confirm_clear") == selected["id"]:
+            st.warning("Clear this conversation? They will still remember the important things you told them.")
+            yes_col, no_col = st.columns(2)
+            with yes_col:
+                if st.button("Yes, clear chat", key="clear_yes", use_container_width=True):
+                    clear_chat(selected["id"], visitor_id=visitor_id)  # chat history only; memories are kept
+                    st.session_state.confirm_clear = None
+                    st.rerun()
+            with no_col:
+                if st.button("Cancel", key="clear_no", use_container_width=True):
+                    st.session_state.confirm_clear = None
+                    st.rerun()
+        elif history:
+            if st.button("🗑️ Clear chat", key="clear_ask"):
+                st.session_state.confirm_clear = selected["id"]
+                st.rerun()
+        for msg in history:
             with st.chat_message(msg["role"], avatar=selected["emoji"] if msg["role"] == "assistant" else "🧑"):
                 st.markdown(msg["content"])
         prompt = st.chat_input(f"Say something to {selected['name'].split()[0]}...")
         if prompt:
             try:
                 with st.spinner(f"{selected['name'].split()[0]} is thinking..."):
-                    send_message(selected["id"], prompt)
+                    send_message(selected["id"], prompt, visitor_id=visitor_id)
                 st.rerun()
             except Exception as exc:
                 st.error(f"The character couldn't reply: {exc}")
@@ -180,6 +216,9 @@ else:
     </svg>
     </div>
     """
+    # Map links are real page loads, so they must carry the visitor id along.
+    vq = "" if SINGLE_USER_ID else f"v={visitor_id}&"
+    map_html = map_html.replace('href="?place=', f'href="?{vq}place=')
     st.markdown(map_html, unsafe_allow_html=True)
     st.caption("Tip: click a building on the map. You can return here whenever you want.")
     with st.expander("Campus directory"):
