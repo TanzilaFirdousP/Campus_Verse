@@ -81,9 +81,14 @@ def get_messages(cid, limit=100):
         rows = c.execute("SELECT role,content,created_at FROM messages WHERE character_id=? ORDER BY id DESC LIMIT ?",(cid,limit)).fetchall()
     return [dict(x) for x in reversed(rows)]
 def clear_messages(cid):
+    """Delete the visible chat history only. Long-term memories are deliberately kept."""
     with connect() as c:
         c.execute("DELETE FROM messages WHERE character_id=?", (cid,))
-        c.execute("DELETE FROM memories WHERE character_id=?", (cid,))
+
+def clear_memories(cid):
+    """Explicitly forget this character's own memories. Shared memories are not touched."""
+    with connect() as c:
+        c.execute("DELETE FROM memories WHERE character_id=? AND kind != 'shared'", (cid,))
 def add_memory(cid, content, kind="personal", memory_type="episodic", importance=2, keywords="", layer="long_term"):
     with connect() as c:
         c.execute("""INSERT INTO memories(character_id,content,kind,memory_type,importance,keywords,layer)

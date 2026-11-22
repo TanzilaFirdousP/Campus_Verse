@@ -1,4 +1,4 @@
-from .db import add_message, get_messages, clear_messages
+from .db import add_message, get_messages, clear_messages, clear_memories
 from .pfit import PfitContextIntegrator
 from .memory import remember_exchange
 from .llm import get_backend
@@ -19,4 +19,5 @@ def send_message(cid, user_text):
     return answer
 
 def get_history(cid): return get_messages(cid)
-def clear_chat(cid): clear_messages(cid)
+def clear_chat(cid): clear_messages(cid)  # chat history only; memories survive
+def clear_memory(cid): clear_memories(cid)  # explicit, separate action
